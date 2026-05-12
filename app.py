@@ -245,7 +245,7 @@ def _render_visual_card(output: dict) -> None:
             f"fmt={meta.get('fmt', '?')} · "
             f"{_format_created(output.get('created_at', ''))}"
         )
-        is_selected = (
+        is_selected = bool(
             st.session_state.selected_visual
             and st.session_state.selected_visual.get("id") == output.get("id")
         )
@@ -276,7 +276,7 @@ def _render_copy_card(output: dict) -> None:
         if variants:
             st.caption(f"Varianti: {len(variants)}")
 
-        is_selected = (
+        is_selected = bool(
             st.session_state.selected_copy
             and st.session_state.selected_copy.get("id") == output.get("id")
         )
