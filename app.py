@@ -20,6 +20,7 @@ from dotenv import load_dotenv
 from agent.accounts import DEFAULT_ACCOUNT_SLUGS, MetaAccount, load_accounts
 from agent.launch import CreativeSpec, LaunchPlan, launch_ads
 from agent.meta_api import CTA_OPTIONS, CampaignInfo, MetaClient
+from agent.orch_link import linked_project_id, save_to_project_button, sidebar_project_picker
 from agent.store import SupabaseStore
 
 
@@ -635,21 +636,29 @@ def _execute_launch(
 
     st.success(f"Ad creata! ad_id={result.created[0]['ad_id']}")
 
+    launched_record = {
+        "ad_name": ad_name,
+        "ad_id": result.created[0]["ad_id"],
+        "creative_id": result.created[0]["creative_id"],
+        "account": account.name,
+        "campaign_id": campaign_id,
+        "adset_id": result.new_adset_id or target_adset_id,
+        "status": start_status,
+        "landing_url": landing_url,
+        "created_at": datetime.now().isoformat(timespec="seconds"),
+    }
     # Storico locale
-    st.session_state.launch_history.insert(
-        0,
-        {
-            "ad_name": ad_name,
-            "ad_id": result.created[0]["ad_id"],
-            "creative_id": result.created[0]["creative_id"],
-            "account": account.name,
-            "campaign_id": campaign_id,
-            "adset_id": result.new_adset_id or target_adset_id,
-            "status": start_status,
-            "landing_url": landing_url,
-            "created_at": datetime.now().isoformat(timespec="seconds"),
-        },
-    )
+    st.session_state.launch_history.insert(0, launched_record)
+
+    # Cross-app: salva ad lanciata nel progetto orchestrator collegato
+    if linked_project_id():
+        save_to_project_button(
+            agent_slug="media",
+            output={"launched_ad": launched_record},
+            user_input={"campaign_id": campaign_id, "account": account.slug},
+            label=f"🎯 Registra ad lanciata per progetto",
+            key_suffix=f"media_{result.created[0]['ad_id']}",
+        )
 
     # Mark used su Supabase
     store = _store()
@@ -689,6 +698,7 @@ def _render_history_tab() -> None:
 
 def _main() -> None:
     account = _sidebar()
+    sidebar_project_picker()
 
     st.title("🛒 Media Buyer Agent")
     st.caption(
