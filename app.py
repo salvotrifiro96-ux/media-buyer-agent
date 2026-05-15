@@ -650,6 +650,47 @@ def _execute_launch(
     # Storico locale
     st.session_state.launch_history.insert(0, launched_record)
 
+    # Archivio persistente su Supabase
+    store = _store()
+    if store:
+        try:
+            store.save_text_output(
+                agent_type="media-buyer",
+                subtype="ad_launched",
+                title=f"{ad_name} · {account.name}",
+                payload={
+                    "launched_ad": launched_record,
+                    "creative": {
+                        "ad_name": ad_name,
+                        "headline": headline,
+                        "body": body,
+                        "description": description,
+                        "cta_type": cta_type,
+                        "image_url": image_url,
+                    },
+                    "plan": {
+                        "create_new_adset": create_new_adset,
+                        "target_adset_id": target_adset_id,
+                        "new_adset_name": new_adset_name,
+                        "new_adset_budget": new_adset_budget,
+                        "new_adset_start": new_adset_start,
+                        "start_status": start_status,
+                    },
+                    "sources": {
+                        "image_source_id": image_source_id,
+                        "copy_source_id": copy_source_id,
+                    },
+                },
+                preview=f"ad_id={result.created[0]['ad_id']} · status={start_status}",
+                metadata={
+                    "account_slug": account.slug,
+                    "campaign_id": campaign_id,
+                    "start_status": start_status,
+                },
+            )
+        except Exception as e:
+            st.toast(f"Archivio non aggiornato: {e}", icon="⚠️")
+
     # Cross-app: salva ad lanciata nel progetto orchestrator collegato
     if linked_project_id():
         save_to_project_button(
@@ -674,23 +715,57 @@ def _execute_launch(
 
 
 def _render_history_tab() -> None:
-    st.subheader("📜 Ads lanciate (questa sessione)")
-    history = st.session_state.launch_history
-    if not history:
-        st.info("Nessuna ad ancora lanciata in questa sessione.")
+    st.subheader("📜 Ads lanciate")
+    st.caption(
+        "Storico persistente su Supabase. Include le ad lanciate da tutte le "
+        "sessioni precedenti."
+    )
+
+    store = _store()
+    rows: list[dict] = []
+    if store is not None:
+        try:
+            rows = store.list_recent_outputs(agent_type="media-buyer", limit=80)
+        except Exception as e:
+            st.warning(f"Lettura archivio fallita: {e}. Mostro solo la sessione.")
+
+    # Fallback / unione con sessione corrente
+    if not rows:
+        history = st.session_state.launch_history
+        if not history:
+            st.info("Nessuna ad ancora lanciata.")
+            return
+        for item in history:
+            with st.container(border=True):
+                cols = st.columns([3, 1])
+                cols[0].markdown(
+                    f"**{item['ad_name']}** · {item['status']} · {item['account']}"
+                )
+                cols[0].caption(
+                    f"ad_id `{item['ad_id']}` · creative `{item['creative_id']}` · "
+                    f"adset `{item['adset_id']}`"
+                )
+                cols[0].caption(f"landing: {item['landing_url']}")
+                cols[1].caption(item["created_at"])
         return
-    for item in history:
+
+    for o in rows:
+        payload = o.get("payload") or {}
+        launched = payload.get("launched_ad") or {}
         with st.container(border=True):
             cols = st.columns([3, 1])
             cols[0].markdown(
-                f"**{item['ad_name']}** · {item['status']} · {item['account']}"
+                f"**{launched.get('ad_name', o.get('title', '?'))}** · "
+                f"{launched.get('status', '?')} · {launched.get('account', '?')}"
             )
             cols[0].caption(
-                f"ad_id `{item['ad_id']}` · creative `{item['creative_id']}` · "
-                f"adset `{item['adset_id']}`"
+                f"ad_id `{launched.get('ad_id', '—')}` · "
+                f"creative `{launched.get('creative_id', '—')}` · "
+                f"adset `{launched.get('adset_id', '—')}`"
             )
-            cols[0].caption(f"landing: {item['landing_url']}")
-            cols[1].caption(item["created_at"])
+            if (url := launched.get("landing_url")):
+                cols[0].caption(f"landing: {url}")
+            cols[1].caption(o.get("created_at", "")[:16].replace("T", " "))
 
 
 # ── Top-level rendering ────────────────────────────────────────────
